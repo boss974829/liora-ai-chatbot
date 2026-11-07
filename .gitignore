@@ -1,0 +1,3 @@
+dist/
+*.keystore
+.DS_Store

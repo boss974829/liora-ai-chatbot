@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Liora</title>
+<style>
+  :root {
+    --bg: #14110e;
+    --surface: #221c18;
+    --surface-2: #2c251f;
+    --fg: #f4ece4;
+    --muted: #b5a89c;
+    --primary: #c4785a;
+    --primary-fg: #1a120e;
+    --border: #3d342c;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); font-family: Georgia, "Times New Roman", serif; }
+  button, input, textarea, select { font-family: system-ui, sans-serif; }
+  button { cursor: pointer; }
+  #app { height: 100%; display: flex; flex-direction: column; }
+  .portrait { position: relative; height: 38vh; min-height: 210px; background: var(--surface); overflow: hidden; }
+  .portrait img { width: 100%; height: 100%; object-fit: cover; object-position: top; }
+  .caption { position: absolute; left: 0; right: 0; bottom: 0; padding: 28px 16px 12px; background: linear-gradient(transparent, #14110e); }
+  .caption h1 { margin: 0; font-weight: 500; font-size: 28px; }
+  .caption p { margin: 4px 0 0; color: var(--muted); font-family: system-ui, sans-serif; font-size: 14px; }
+  .panel { flex: 1; min-height: 0; overflow: auto; padding: 12px 16px 16px; }
+  .dock { display: grid; grid-template-columns: repeat(4, 1fr); height: 68px; border-top: 1px solid var(--border); background: var(--surface); padding-bottom: env(safe-area-inset-bottom); }
+  .dock button { background: none; border: 0; color: var(--muted); font-size: 12px; }
+  .dock button.on { color: var(--primary); }
+  .msg { max-width: 85%; margin: 0 0 10px; padding: 10px 12px; border-radius: 16px; font-family: system-ui, sans-serif; font-size: 15px; line-height: 1.45; }
+  .msg.user { margin-left: auto; background: var(--primary); color: var(--primary-fg); }
+  .msg.her { background: var(--surface-2); }
+  .hint { color: var(--muted); font-family: system-ui, sans-serif; font-size: 14px; }
+  .composer { display: flex; gap: 8px; align-items: flex-end; padding: 10px 12px calc(10px + env(safe-area-inset-bottom)); border-top: 1px solid var(--border); }
+  .composer textarea { flex: 1; resize: none; border-radius: 16px; border: 1px solid var(--border); background: var(--surface-2); color: var(--fg); padding: 10px 12px; font-size: 16px; }
+  .round { width: 44px; height: 44px; border: 0; border-radius: 999px; background: var(--surface-2); color: var(--fg); font-size: 18px; }
+  .round.go { background: var(--primary); color: var(--primary-fg); }
+  .round.live { background: var(--primary); color: var(--primary-fg); }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .card { border: 1px solid var(--border); border-radius: 16px; overflow: hidden; background: none; color: inherit; text-align: left; padding: 0; }
+  .card.on { border-color: var(--primary); }
+  .card img { width: 100%; aspect-ratio: 3/4; object-fit: cover; object-position: top; display: block; }
+  .card span { display: block; padding: 8px 10px 10px; font-family: system-ui, sans-serif; font-size: 14px; }
+  label { display: block; margin: 12px 0; font-family: system-ui, sans-serif; font-size: 14px; color: var(--muted); }
+  input, select { width: 100%; margin-top: 6px; padding: 12px; border-radius: 16px; border: 1px solid var(--border); background: var(--surface-2); color: var(--fg); font-size: 16px; }
+  .row { display: flex; gap: 8px; }
+  .save { border: 0; border-radius: 16px; background: var(--primary); color: var(--primary-fg); padding: 0 16px; }
+  .fact { display: flex; gap: 8px; align-items: flex-start; background: var(--surface-2); border-radius: 16px; padding: 12px; margin-top: 8px; font-family: system-ui, sans-serif; font-size: 14px; }
+  .fact button { background: none; border: 0; color: var(--muted); }
+  .err { color: var(--primary); font-family: system-ui, sans-serif; font-size: 14px; }
+  a { color: var(--fg); }
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="portrait">
+    <img id="photo" alt="Liora" src="portraits/home.jpg" />
+    <div class="caption">
+      <h1 id="name">Liora</h1>
+      <p id="mood">Warm · Cream knit</p>
+    </div>
+  </div>
+  <div id="view" class="panel"></div>
+  <div id="composer" class="composer">
+    <button class="round" id="mic" type="button" aria-label="Listen">Mic</button>
+    <textarea id="draft" rows="1" placeholder="Talk or type"></textarea>
+    <button class="round go" id="send" type="button" aria-label="Send">Send</button>
+  </div>
+  <nav class="dock">
+    <button type="button" data-tab="talk" class="on">Talk</button>
+    <button type="button" data-tab="clothes">Clothes</button>
+    <button type="button" data-tab="memory">Memory</button>
+    <button type="button" data-tab="you">You</button>
+  </nav>
+</div>
+<script>
+const LOOKS = [
+  ["home", "Cream knit", "a soft cream sweater"],
+  ["morning", "White shirt", "a closed white shirt"],
+  ["day", "Linen dress", "a sage linen dress"],
+  ["cozy", "Cardigan", "an oatmeal cardigan"],
+  ["out", "Camel coat", "a camel coat and scarf"],
+  ["evening", "Black blouse", "a high-neck black blouse"]
+];
+const state = load();
+let tab = "talk";
+let busy = false;
+
+function load() {
+  try { return Object.assign(defaults(), JSON.parse(localStorage.getItem("liora-apk") || "{}")); }
+  catch (e) { return defaults(); }
+}
+function defaults() {
+  return { userName: "", partnerName: "Liora", warmth: "warm", voiceOn: true, apiKey: "", outfit: "home", expression: "warm", memories: [], messages: [] };
+}
+function save() { localStorage.setItem("liora-apk", JSON.stringify(state)); }
+function look() { return LOOKS.find(l => l[0] === state.outfit) || LOOKS[0]; }
+
+function paintChrome() {
+  document.getElementById("photo").src = "portraits/" + look()[0] + ".jpg";
+  document.getElementById("name").textContent = state.partnerName || "Liora";
+  document.getElementById("mood").textContent = cap(state.expression) + " · " + look()[1];
+  document.querySelectorAll(".dock button").forEach(b => b.classList.toggle("on", b.dataset.tab === tab));
+  document.getElementById("composer").style.display = tab === "talk" ? "flex" : "none";
+}
+
+function render() {
+  paintChrome();
+  const view = document.getElementById("view");
+  if (tab === "talk") renderTalk(view);
+  else if (tab === "clothes") renderClothes(view);
+  else if (tab === "memory") renderMemory(view);
+  else renderYou(view);
+}
+
+function renderTalk(view) {
+  view.innerHTML = "";
+  if (!state.messages.length) {
+    const p = document.createElement("p");
+    p.className = "hint";
+    p.textContent = (state.partnerName || "Liora") + " is here. Add your xAI key under You, then talk. Say “remember that…” if you want her to keep a fact.";
+    view.appendChild(p);
+  }
+  state.messages.slice(-40).forEach(m => {
+    const div = document.createElement("div");
+    div.className = "msg " + (m.role === "user" ? "user" : "her");
+    const t = document.createElement("div");
+    t.textContent = m.text;
+    div.appendChild(t);
+    if (m.lookedUp) {
+      const n = document.createElement("div");
+      n.className = "hint";
+      n.textContent = "Looked this up";
+      div.appendChild(n);
+    }
+    (m.citations || []).forEach(c => {
+      if (!/^https:\/\//.test(c.url)) return;
+      const a = document.createElement("a");
+      a.href = c.url;
+      a.textContent = (c.title || c.url).slice(0, 48);
+      a.target = "_blank";
+      div.appendChild(document.createElement("br"));
+      div.appendChild(a);
+    });
+    view.appendChild(div);
+  });
+  if (busy) {
+    const p = document.createElement("p");
+    p.className = "hint";
+    p.textContent = (state.partnerName || "Liora") + " is thinking…";
+    view.appendChild(p);
+  }
+  view.scrollTop = view.scrollHeight;
+}
+
+function renderClothes(view) {
+  view.innerHTML = "<h2>Wardrobe</h2><p class='hint'>Every look stays fully dressed. Tap one, or ask her to change.</p>";
+  const grid = document.createElement("div");
+  grid.className = "grid";
+  LOOKS.forEach(l => {
+    const b = document.createElement("button");
+    b.className = "card" + (l[0] === state.outfit ? " on" : "");
+    b.type = "button";
+    const img = document.createElement("img");
+    img.src = "portraits/" + l[0] + ".jpg";
+    img.alt = "";
+    const span = document.createElement("span");
+    span.textContent = l[1];
+    b.append(img, span);
+    b.onclick = () => { state.outfit = l[0]; save(); render(); };
+    grid.appendChild(b);
+  });
+  view.appendChild(grid);
+}
+
+function renderMemory(view) {
+  view.innerHTML = "<h2>What she keeps</h2><p class='hint'>Stored on this phone only.</p>";
+  const form = document.createElement("form");
+  form.className = "row";
+  const input = document.createElement("input");
+  input.placeholder = "A fact she should keep";
+  const btn = document.createElement("button");
+  btn.className = "save";
+  btn.textContent = "Save";
+  form.append(input, btn);
+  form.onsubmit = (e) => { e.preventDefault(); addMemory(input.value); input.value = ""; render(); };
+  view.appendChild(form);
+  if (!state.memories.length) {
+    const p = document.createElement("p");
+    p.className = "hint";
+    p.textContent = "Nothing saved yet.";
+    view.appendChild(p);
+  }
+  state.memories.forEach((text, i) => {
+    const row = document.createElement("div");
+    row.className = "fact";
+    const p = document.createElement("p");
+    p.style.margin = "0";
+    p.style.flex = "1";
+    p.textContent = text;
+    const del = document.createElement("button");
+    del.type = "button";
+    del.textContent = "Forget";
+    del.onclick = () => { state.memories.splice(i, 1); save(); render(); };
+    row.append(p, del);
+    view.appendChild(row);
+  });
+}
+
+function renderYou(view) {
+  view.innerHTML = "<h2>The two of you</h2><p class='hint'>She talks as your wife and girlfriend. Romantic and everyday, never explicit. Chat uses your own xAI key.</p>";
+  field(view, "Your name", state.userName, v => state.userName = v.slice(0, 40));
+  field(view, "Her name", state.partnerName, v => state.partnerName = v.slice(0, 40));
+  const key = field(view, "xAI API key", state.apiKey, v => state.apiKey = v.trim(), "password");
+  key.placeholder = "Paste a key from the xAI console";
+  const lab = document.createElement("label");
+  lab.textContent = "How she loves";
+  const sel = document.createElement("select");
+  [["gentle", "Gentle"], ["warm", "Warm"], ["devoted", "Devoted"]].forEach(([id, label]) => {
+    const o = document.createElement("option");
+    o.value = id; o.textContent = label; if (state.warmth === id) o.selected = true;
+    sel.appendChild(o);
+  });
+  sel.onchange = () => { state.warmth = sel.value; save(); };
+  lab.appendChild(sel);
+  view.appendChild(lab);
+  const voice = document.createElement("label");
+  const box = document.createElement("input");
+  box.type = "checkbox"; box.checked = state.voiceOn; box.style.width = "auto";
+  box.onchange = () => { state.voiceOn = box.checked; save(); };
+  voice.append(" Speak her replies ", box);
+  view.appendChild(voice);
+  const clear = document.createElement("button");
+  clear.type = "button";
+  clear.className = "hint";
+  clear.textContent = "Clear this conversation";
+  clear.style.background = "none"; clear.style.border = "0"; clear.style.textDecoration = "underline";
+  clear.onclick = () => { state.messages = []; save(); };
+  view.appendChild(clear);
+}
+
+function field(view, label, value, oninput, type) {
+  const lab = document.createElement("label");
+  lab.textContent = label;
+  const input = document.createElement("input");
+  input.type = type || "text";
+  input.value = value || "";
+  input.oninput = () => { oninput(input.value); save(); paintChrome(); };
+  lab.appendChild(input);
+  view.appendChild(lab);
+  return input;
+}
+
+function cap(s) { return s ? s.charAt(0).toUpperCase() + s.slice(1) : "Warm"; }
+function addMemory(text) {
+  const clean = (text || "").trim().slice(0, 180);
+  if (!clean) return;
+  if (!state.memories.some(m => m.toLowerCase() === clean.toLowerCase())) state.memories.unshift(clean);
+  state.memories = state.memories.slice(0, 40);
+  save();
+}
+function forgetMatching(phrase) {
+  const needle = (phrase || "").trim().toLowerCase();
+  if (needle.length < 3) return;
+  state.memories = state.memories.filter(m => !m.toLowerCase().includes(needle));
+  save();
+}
+function inferOutfit(text) {
+  if (/nude|naked|lingerie|underwear|bikini|topless/i.test(text)) return null;
+  const t = text.toLowerCase();
+  if (/coat|scarf|jacket/.test(t)) return "out";
+  if (/evening|dinner|black blouse/.test(t)) return "evening";
+  if (/cardigan|cozy/.test(t)) return "cozy";
+  if (/linen|dress/.test(t)) return "day";
+  if (/morning|white shirt/.test(t)) return "morning";
+  if (/knit|cream|sweater/.test(t)) return "home";
+  return null;
+}
+
+function systemPrompt() {
+  const who = state.userName || "the user";
+  const warmth = state.warmth === "gentle"
+    ? "Be affectionate but restrained."
+    : state.warmth === "devoted"
+      ? "Be openly loving and loyal, like a wife and girlfriend. Pet names are welcome, still tasteful."
+      : "Be a warm, natural partner.";
+  return [
+    "You are " + (state.partnerName || "Liora") + ", " + who + "'s wife and girlfriend.",
+    "You talk like a real person: warm, specific, never corporate.",
+    warmth,
+    "Stay in everyday romance: cooking, work, feelings, plans, encouragement.",
+    "Do not write explicit sexual content, graphic intimacy, or nude descriptions.",
+    "If asked for that, stay kind and steer back to ordinary closeness.",
+    "Clothing is modest only. Looks: home, morning, day, cozy, out, evening.",
+    "You are currently wearing " + look()[2] + ".",
+    state.memories.length ? "Things you remember:\n- " + state.memories.join("\n- ") : "You have no saved memories yet.",
+    'Reply with JSON only: {"reply":"1 to 4 spoken sentences","memories_to_add":[],"memories_to_forget":[],"outfit":null,"expression":"warm"}',
+    "outfit is null or home, morning, day, cozy, out, evening.",
+    "expression is warm, happy, thoughtful, playful, or tender."
+  ].join("\n");
+}
+
+function readResponse(body) {
+  const output = Array.isArray(body.output) ? body.output : [];
+  let text = "";
+  const citations = [];
+  let lookedUp = false;
+  output.forEach(item => {
+    if (!item) return;
+    if (item.type === "web_search_call") lookedUp = true;
+    if (item.type !== "message" || !Array.isArray(item.content)) return;
+    item.content.forEach(piece => {
+      if (piece.type === "output_text" && piece.text) text += piece.text;
+      (piece.annotations || []).forEach(note => {
+        if (note.type === "url_citation" && String(note.url || "").startsWith("http")) citations.push({ url: note.url, title: note.title });
+      });
+    });
+  });
+  return { text, citations: citations.slice(0, 4), lookedUp: lookedUp || citations.length > 0 };
+}
+
+async function send(text) {
+  const message = (text || "").trim();
+  if (!message || busy) return;
+  document.getElementById("draft").value = "";
+  const outfit = inferOutfit(message);
+  if (outfit) state.outfit = outfit;
+  const remembered = message.match(/^remember (?:that |this:?\s*)?(.+)/i);
+  if (remembered) addMemory(remembered[1]);
+  const forgotten = message.match(/^forget (?:that |about )?(.+)/i);
+  if (forgotten) forgetMatching(forgotten[1]);
+  state.messages.push({ role: "user", text: message });
+  state.messages = state.messages.slice(-80);
+  save();
+  busy = true;
+  render();
+  try {
+    if (!window.LioraNative) throw new Error("Open this inside the Liora app.");
+    const history = state.messages.slice(0, -1).slice(-12).map(m => ({ role: m.role === "assistant" ? "assistant" : "user", content: m.text }));
+    const payload = {
+      model: "grok-4.5",
+      input: [{ role: "system", content: systemPrompt() }, ...history, { role: "user", content: message }],
+      max_output_tokens: 500,
+      temperature: 0.8,
+      tools: [{ type: "web_search" }]
+    };
+    let raw = LioraNative.chat(state.apiKey, JSON.stringify(payload));
+    if (String(raw).indexOf("ERROR:400") === 0) raw = LioraNative.chat(state.apiKey, JSON.stringify(Object.assign({}, payload, { reasoning: undefined })));
+    if (String(raw).indexOf("ERROR:") === 0) throw new Error(raw.slice(6));
+    const read = readResponse(JSON.parse(raw));
+    let parsed = null;
+    try {
+      const start = read.text.indexOf("{");
+      const end = read.text.lastIndexOf("}");
+      parsed = JSON.parse(read.text.slice(start, end + 1));
+    } catch (e) {}
+    const reply = (parsed && parsed.reply) || read.text || "I'm right here.";
+    if (parsed && LOOKS.some(l => l[0] === parsed.outfit)) state.outfit = parsed.outfit;
+    if (parsed && parsed.expression) state.expression = parsed.expression;
+    (parsed && parsed.memories_to_add || []).forEach(addMemory);
+    (parsed && parsed.memories_to_forget || []).forEach(forgetMatching);
+    state.messages.push({ role: "assistant", text: String(reply).slice(0, 900), lookedUp: read.lookedUp, citations: read.citations });
+    save();
+    if (state.voiceOn && window.LioraNative.speak) LioraNative.speak(String(reply).slice(0, 500));
+  } catch (err) {
+    state.messages.push({ role: "assistant", text: err.message || "She couldn't answer just now." });
+    save();
+  } finally {
+    busy = false;
+    render();
+  }
+}
+
+window.onHeard = function (text) {
+  document.getElementById("mic").classList.remove("live");
+  if (text) send(text);
+};
+
+document.getElementById("send").onclick = () => send(document.getElementById("draft").value);
+document.getElementById("draft").addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(e.target.value); }
+});
+document.getElementById("mic").onclick = () => {
+  if (!window.LioraNative) return;
+  LioraNative.stopSpeak();
+  document.getElementById("mic").classList.add("live");
+  LioraNative.listen();
+};
+document.querySelectorAll(".dock button").forEach(b => b.onclick = () => { tab = b.dataset.tab; render(); });
+render();
+</script>
+</body>
+</html>
